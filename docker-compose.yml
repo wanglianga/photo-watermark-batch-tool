@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  photo-watermark-tool:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: photo-watermark-tool:latest
+    container_name: photo-watermark-tool
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-appuser}
+      - PULSE_SERVER=unix:${XDG_RUNTIME_DIR:-/tmp/runtime-appuser}/pulse/native
+      - ELECTRON_DISABLE_SANDBOX=1
+      - QT_X11_NO_MITSHM=1
+      - _JAVA_OPTIONS=-Dawt.useSystemAAFontSettings=on
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XDG_RUNTIME_DIR:-/tmp/runtime-appuser}:${XDG_RUNTIME_DIR:-/tmp/runtime-appuser}:rw
+      - ./input:/app/input:rw
+      - ./output:/app/output:rw
+      - /dev/dri:/dev/dri:rw
+      - /dev/snd:/dev/snd:rw
+    network_mode: "host"
+    ipc: "host"
+    pid: "host"
+    privileged: false
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    cap_add:
+      - SYS_ADMIN
+    group_add:
+      - ${VIDEO_GID:-44}
+      - ${AUDIO_GID:-29}
+    stdin_open: true
+    tty: true
+    restart: "no"

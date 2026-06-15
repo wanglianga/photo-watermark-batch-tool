@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>照片版权水印批处理工具</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="header-title">
+        <h1>📸 照片版权水印批处理工具</h1>
+        <p class="subtitle">本地处理 · 不上传云端 · 原图保留</p>
+      </div>
+      <div class="header-actions">
+        <button id="btn-open-output" class="btn btn-secondary" disabled>📁 打开输出目录</button>
+      </div>
+    </header>
+
+    <div class="main-content">
+      <aside class="left-panel">
+        <section class="panel-section">
+          <h2>📂 导入文件</h2>
+          <div id="drop-zone" class="drop-zone">
+            <div class="drop-icon">📁</div>
+            <p class="drop-text">拖入文件夹或图片文件</p>
+            <p class="drop-hint">或点击下方按钮选择</p>
+            <div class="drop-buttons">
+              <button id="btn-select-folder" class="btn btn-primary">选择文件夹</button>
+              <button id="btn-select-files" class="btn btn-outline">选择文件</button>
+            </div>
+          </div>
+          <div id="file-stats" class="file-stats hidden">
+            <span id="file-count">0</span> 张图片
+            <button id="btn-clear-files" class="btn-link">清空</button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>🖼️ 文件列表</h2>
+          <div id="file-list" class="file-list">
+            <p class="empty-hint">暂无图片，拖入文件夹开始</p>
+          </div>
+        </section>
+      </aside>
+
+      <main class="center-panel">
+        <section class="panel-section">
+          <h2>🔧 水印设置</h2>
+          <div class="settings-grid">
+            <div class="setting-group">
+              <h3>Logo 设置</h3>
+              <div class="setting-row">
+                <label>Logo 文件</label>
+                <div class="row-input">
+                  <input type="text" id="logo-path" readonly placeholder="选择Logo图片（推荐PNG透明背景）">
+                  <button id="btn-select-logo" class="btn btn-small">选择</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <label>文字水印</label>
+                <input type="text" id="text-watermark" placeholder="例如：© 2024 摄影师名">
+              </div>
+              <div class="setting-row two-col">
+                <div>
+                  <label>文字颜色</label>
+                  <input type="color" id="text-color" value="#FFFFFF">
+                </div>
+                <div>
+                  <label>描边颜色</label>
+                  <input type="color" id="text-stroke-color" value="#000000">
+                </div>
+              </div>
+              <div class="setting-row two-col">
+                <div>
+                  <label>描边宽度</label>
+                  <input type="number" id="text-stroke-width" min="0" max="10" value="1" step="0.5"> px
+                </div>
+                <div>
+                  <label>字体</label>
+                  <select id="text-font">
+                    <option value="sans-serif">无衬线</option>
+                    <option value="serif">衬线体</option>
+                    <option value="monospace">等宽字体</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>重命名设置</h3>
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="rename-enabled">
+                  启用批量重命名
+                </label>
+              </div>
+              <div class="setting-row">
+                <label>客户名称</label>
+                <input type="text" id="customer-name" placeholder="例如：张三婚礼">
+              </div>
+              <div class="setting-row">
+                <label>拍摄主题</label>
+                <input type="text" id="shoot-theme" placeholder="例如：外景主纱">
+              </div>
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="keep-original-name" checked>
+                  保留原文件名
+                </label>
+              </div>
+              <div class="setting-row two-col">
+                <div>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="add-sequence" checked>
+                    添加序号
+                  </label>
+                </div>
+                <div>
+                  <label>序号位数</label>
+                  <input type="number" id="sequence-digits" min="1" max="6" value="3">
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>导出设置</h3>
+              <div class="setting-row">
+                <label>输出目录</label>
+                <div class="row-input">
+                  <input type="text" id="output-dir" readonly placeholder="选择输出目录">
+                  <button id="btn-select-output" class="btn btn-small">选择</button>
+                </div>
+              </div>
+              <div class="setting-row two-col">
+                <div>
+                  <label>输出格式</label>
+                  <select id="output-format">
+                    <option value="same">保持原格式</option>
+                    <option value="jpg" selected>JPG</option>
+                    <option value="webp">WebP</option>
+                    <option value="png">PNG</option>
+                  </select>
+                </div>
+                <div>
+                  <label>压缩质量</label>
+                  <input type="number" id="quality" min="1" max="100" value="85"> %
+                </div>
+              </div>
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="remove-exif">
+                  清理 EXIF 信息（隐私保护）
+                </label>
+              </div>
+              <div class="setting-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="resize-enabled">
+                  调整尺寸
+                </label>
+              </div>
+              <div id="resize-options" class="sub-options hidden">
+                <div class="setting-row">
+                  <label>调整方式</label>
+                  <select id="resize-mode">
+                    <option value="long">按长边</option>
+                    <option value="width">按宽度</option>
+                    <option value="height">按高度</option>
+                  </select>
+                </div>
+                <div class="setting-row">
+                  <label id="resize-value-label">长边像素</label>
+                  <input type="number" id="resize-long-edge" min="100" max="10000" value="2000"> px
+                </div>
+                <div class="setting-row">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="allow-enlargement">
+                    允许放大图片
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>📐 方向参数设置（横/竖/方图独立配置）</h2>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="landscape">横图 (宽>高)</button>
+            <button class="tab-btn" data-tab="portrait">竖图 (高>宽)</button>
+            <button class="tab-btn" data-tab="square">方图 (宽=高)</button>
+          </div>
+          <div id="orientation-settings" class="orientation-settings">
+            <div class="setting-row two-col">
+              <div>
+                <label>Logo位置</label>
+                <select class="orient-setting" data-field="position">
+                  <option value="top-left">左上</option>
+                  <option value="top-center">上中</option>
+                  <option value="top-right">右上</option>
+                  <option value="center-left">左中</option>
+                  <option value="center">正中</option>
+                  <option value="center-right">右中</option>
+                  <option value="bottom-left">左下</option>
+                  <option value="bottom-center">下中</option>
+                  <option value="bottom-right" selected>右下</option>
+                </select>
+              </div>
+              <div>
+                <label>安全边距</label>
+                <input type="number" class="orient-setting" data-field="margin" min="0" max="50" value="3"> %
+              </div>
+            </div>
+            <div class="setting-row two-col">
+              <div>
+                <label>Logo尺寸</label>
+                <input type="number" class="orient-setting" data-field="logoSize" min="0" max="100" value="10"> %
+              </div>
+              <div>
+                <label>Logo透明度</label>
+                <input type="number" class="orient-setting" data-field="opacity" min="1" max="100" value="100"> %
+              </div>
+            </div>
+            <div class="setting-row two-col">
+              <div>
+                <label>文字位置</label>
+                <select class="orient-setting" data-field="textPosition">
+                  <option value="top-left">左上</option>
+                  <option value="top-center">上中</option>
+                  <option value="top-right">右上</option>
+                  <option value="center-left">左中</option>
+                  <option value="center">正中</option>
+                  <option value="center-right">右中</option>
+                  <option value="bottom-left">左下</option>
+                  <option value="bottom-center" selected>下中</option>
+                  <option value="bottom-right">右下</option>
+                </select>
+              </div>
+              <div>
+                <label>文字边距</label>
+                <input type="number" class="orient-setting" data-field="textMargin" min="0" max="50" value="5"> %
+              </div>
+            </div>
+            <div class="setting-row two-col">
+              <div>
+                <label>文字尺寸</label>
+                <input type="number" class="orient-setting" data-field="textSize" min="0" max="30" value="3"> %
+              </div>
+              <div>
+                <label>文字透明度</label>
+                <input type="number" class="orient-setting" data-field="textOpacity" min="1" max="100" value="80"> %
+              </div>
+            </div>
+          </div>
+          <div class="sync-row">
+            <button id="btn-copy-to-all" class="btn btn-outline btn-small">将当前设置复制到所有方向</button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="action-row">
+            <button id="btn-preview" class="btn btn-primary" disabled>🔍 抽样预览</button>
+            <button id="btn-start" class="btn btn-success" disabled>▶️ 开始批处理</button>
+            <button id="btn-cancel" class="btn btn-danger hidden" disabled>⏹️ 取消处理</button>
+          </div>
+        </section>
+      </main>
+
+      <aside class="right-panel">
+        <section class="panel-section">
+          <h2>👁️ 预览与信息</h2>
+          <div id="preview-container" class="preview-container">
+            <p class="empty-hint">选择文件后查看预览</p>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>📊 EXIF 信息</h2>
+          <div id="exif-panel" class="exif-panel">
+            <p class="empty-hint">选择文件后查看EXIF</p>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>📈 处理进度</h2>
+          <div id="progress-section" class="progress-section">
+            <div class="progress-bar-container">
+              <div id="progress-bar" class="progress-bar"></div>
+              <span id="progress-percent" class="progress-percent">0%</span>
+            </div>
+            <div class="progress-stats">
+              <div class="stat-item">
+                <span class="stat-label">当前文件</span>
+                <span id="stat-current" class="stat-value">-</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">进度</span>
+                <span id="stat-progress" class="stat-value">0 / 0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-value success" id="stat-success">✓ 0</span>
+                <span class="stat-value failed" id="stat-failed">✗ 0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">预计剩余</span>
+                <span id="stat-eta" class="stat-value">-</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2>📝 处理结果</h2>
+          <div id="result-panel" class="result-panel">
+            <p class="empty-hint">处理完成后显示结果</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div id="preview-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>水印效果预览</h3>
+        <button id="btn-close-modal" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="preview-compare">
+          <div class="compare-item">
+            <h4>原图</h4>
+            <img id="preview-original" alt="原图">
+          </div>
+          <div class="compare-item">
+            <h4>添加水印后</h4>
+            <img id="preview-watermarked" alt="水印后">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
