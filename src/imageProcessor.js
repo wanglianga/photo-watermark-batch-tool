@@ -338,13 +338,12 @@ async function processSingleImage(filePath, outputDir, index, total, settings, p
 
     if (orientSettings.opacity < 100) {
       const alpha = orientSettings.opacity / 100;
+      const alphaSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${logoWidth}" height="${logoHeight}">
+        <rect width="100%" height="100%" fill="white" fill-opacity="${alpha}"/>
+      </svg>`;
       const semiLogoBuffer = await sharp(logoBuffer)
         .composite([{
-          input: Buffer.from([
-            `<svg xmlns="http://www.w3.org/2000/svg" width="${logoWidth}" height="${logoHeight}">
-              <rect width="100%" height="100%" fill="white" fill-opacity="${alpha}"/>
-            </svg>`
-          ]),
+          input: Buffer.from(alphaSvg),
           blend: 'dest-in'
         }])
         .toBuffer();

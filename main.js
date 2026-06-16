@@ -125,3 +125,91 @@ ipcMain.handle('show-notification', async (event, title, body) => {
 ipcMain.handle('get-image-info', async (event, imagePath) => {
   return imageProcessor.getImageInfo(imagePath);
 });
+
+ipcMain.handle('check-path-type', async (event, fullPath) => {
+  try {
+    const stat = fs.statSync(fullPath);
+    const ext = path.extname(fullPath).toLowerCase();
+    return {
+      path: fullPath,
+      name: path.basename(fullPath),
+      folder: path.dirname(fullPath),
+      size: stat.size,
+      isDirectory: stat.isDirectory(),
+      isFile: stat.isFile(),
+      extension: ext,
+      isImage: ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp', '.bmp'].includes(ext)
+    };
+  } catch (err) {
+    return null;
+  }
+});
+
+ipcMain.handle('parse-file-paths', async (event, filePaths) => {
+  const SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp', '.bmp'];
+  const results = [];
+  const folders = [];
+
+  for (const p of filePaths) {
+    try {
+      const stat = fs.statSync(p);
+      if (stat.isDirectory()) {
+        folders.push(p);
+      } else if (stat.isFile()) {
+        const ext = path.extname(p).toLowerCase();
+        if (SUPPORTED_EXTENSIONS.includes(ext)) {
+          results.push({
+            path: p,
+            name: path.basename(p),
+            folder: path.dirname(p),
+            size: stat.size
+          });
+        }
+      }
+    } catch (err) {
+      continue;
+    }
+  }
+
+  let scanned = [];
+  if (folders.length > 0) {
+    scanned = await imageProcessor.scanImages(folders);
+  }
+
+  return scanned.concat(results);
+});
+
+ipcMain.handle('open-path', async (event, targetPath) => {
+  if (targetPath && fs.existsSync(targetPath)) {
+    const result = shell.openPath(targetPath);
+    return result === '';
+  }
+  return false;
+});
+
+ipcMain.handle('basename', async (event, filePath) => {
+  return path.basename(filePath);
+});
+
+ipcMain.handle('dirname', async (event, filePath) => {
+  return path.dirname(filePath);
+});
+
+ipcMain.handle('extname', async (event, filePath) => {
+  return path.extname(filePath);
+});
+
+ipcMain.handle('stat', async (event, filePath) => {
+  try {
+    const s = fs.statSync(filePath);
+    return {
+      size: s.size,
+      isDirectory: s.isDirectory(),
+      isFile: s.isFile(),
+      mtime: s.mtime,
+      birthtime: s.birthtime
+    };
+  } catch (err) {
+    return null;
+  }
+});

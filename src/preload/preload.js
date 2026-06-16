@@ -19,5 +19,12 @@ contextBridge.exposeInMainWorld('api', {
   },
   removeBatchProgressListener: () => {
     ipcRenderer.removeAllListeners('batch-progress');
-  }
+  },
+  checkPathType: (fullPath) => ipcRenderer.invoke('check-path-type', fullPath),
+  parseFilePaths: (filePaths) => ipcRenderer.invoke('parse-file-paths', filePaths),
+  openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),
+  basename: (filePath) => ipcRenderer.invoke('basename', filePath),
+  dirname: (filePath) => ipcRenderer.invoke('dirname', filePath),
+  extname: (filePath) => ipcRenderer.invoke('extname', filePath),
+  stat: (filePath) => ipcRenderer.invoke('stat', filePath)
 });

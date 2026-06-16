@@ -505,8 +505,7 @@ function showBatchResult(result) {
   const logBtn = $('btn-view-log');
   if (logBtn && result.logFile) {
     logBtn.addEventListener('click', () => {
-      const { shell } = require('electron');
-      shell.openPath(result.logFile);
+      window.api.openPath(result.logFile);
     });
   }
 
@@ -624,44 +623,24 @@ function setupDragAndDrop() {
   dropZone.addEventListener('drop', async (e) => {
     e.preventDefault();
     const items = e.dataTransfer.items;
-    const paths = [];
-    const folders = [];
+    const droppedPaths = [];
     const individualFiles = [];
 
     for (const item of items) {
       if (item.kind === 'file') {
-        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
         const file = item.getAsFile();
-        if (file) {
-          const fullPath = file.path;
-          const fs = require('fs');
-          try {
-            const stat = fs.statSync(fullPath);
-            if (stat.isDirectory()) {
-              folders.push(fullPath);
-            } else {
-              const ext = '.' + fullPath.split('.').pop().toLowerCase();
-              if (['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp', '.bmp'].includes(ext)) {
-                individualFiles.push({
-                  path: fullPath,
-                  name: file.name,
-                  size: file.size,
-                  folder: require('path').dirname(fullPath)
-                });
-              }
-            }
-          } catch (err) {
-            console.error(err);
-          }
+        if (file && file.path) {
+          droppedPaths.push(file.path);
         }
       }
     }
 
-    let collected = [];
-    if (folders.length > 0) {
-      collected = await window.api.scanImages(folders);
+    if (droppedPaths.length === 0) {
+      showToast('未找到文件', 'error');
+      return;
     }
-    collected = collected.concat(individualFiles);
+
+    const collected = await window.api.parseFilePaths(droppedPaths);
 
     if (collected.length === 0) {
       showToast('未找到支持的图片文件', 'error');
@@ -688,17 +667,7 @@ function setupFileSelectors() {
   $('btn-select-files').addEventListener('click', async () => {
     const paths = await window.api.selectFiles();
     if (paths && paths.length > 0) {
-      const fs = require('fs');
-      const path = require('path');
-      const files = paths.map(p => {
-        const stat = fs.statSync(p);
-        return {
-          path: p,
-          name: path.basename(p),
-          size: stat.size,
-          folder: path.dirname(p)
-        };
-      });
+      const files = await window.api.parseFilePaths(paths);
       await addFiles(files);
     }
   });
