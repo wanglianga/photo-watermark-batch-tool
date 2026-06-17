@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   getThumbnail: (imagePath, size) => ipcRenderer.invoke('get-thumbnail', imagePath, size),
   readExif: (imagePath) => ipcRenderer.invoke('read-exif', imagePath),
   previewWatermark: (imagePath, settings) => ipcRenderer.invoke('preview-watermark', imagePath, settings),
+  previewWatermarkMulti: (imagePath, settings, positions) => ipcRenderer.invoke('preview-watermark-multi', imagePath, settings, positions),
   startBatchProcess: (files, settings, outputDir) => ipcRenderer.invoke('start-batch-process', files, settings, outputDir),
   cancelBatch: () => ipcRenderer.invoke('cancel-batch'),
   openOutputFolder: (folderPath) => ipcRenderer.invoke('open-output-folder', folderPath),
@@ -26,5 +27,10 @@ contextBridge.exposeInMainWorld('api', {
   basename: (filePath) => ipcRenderer.invoke('basename', filePath),
   dirname: (filePath) => ipcRenderer.invoke('dirname', filePath),
   extname: (filePath) => ipcRenderer.invoke('extname', filePath),
-  stat: (filePath) => ipcRenderer.invoke('stat', filePath)
+  stat: (filePath) => ipcRenderer.invoke('stat', filePath),
+  getTemplates: () => ipcRenderer.invoke('get-templates'),
+  saveTemplate: (template) => ipcRenderer.invoke('save-template', template),
+  deleteTemplate: (templateId) => ipcRenderer.invoke('delete-template', templateId),
+  checkOutputConflicts: (files, outputDir, settings) => ipcRenderer.invoke('check-output-conflicts', files, outputDir, settings),
+  getFolderCustomerName: (folderPath) => ipcRenderer.invoke('get-folder-customer-name', folderPath)
 });

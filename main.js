@@ -5,6 +5,38 @@ const imageProcessor = require('./src/imageProcessor');
 
 let mainWindow = null;
 
+function getTemplatesDir() {
+  const userDataPath = app.getPath('userData');
+  const templatesDir = path.join(userDataPath, 'templates');
+  if (!fs.existsSync(templatesDir)) {
+    fs.mkdirSync(templatesDir, { recursive: true });
+  }
+  return templatesDir;
+}
+
+function getTemplatesFilePath() {
+  return path.join(getTemplatesDir(), 'watermark-templates.json');
+}
+
+function readTemplates() {
+  const filePath = getTemplatesFilePath();
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(content) || [];
+  } catch (err) {
+    console.error('读取模板失败:', err);
+    return [];
+  }
+}
+
+function writeTemplates(templates) {
+  const filePath = getTemplatesFilePath();
+  fs.writeFileSync(filePath, JSON.stringify(templates, null, 2), 'utf-8');
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -207,9 +239,52 @@ ipcMain.handle('stat', async (event, filePath) => {
       isDirectory: s.isDirectory(),
       isFile: s.isFile(),
       mtime: s.mtime,
-      birthtime: s.birthtime
+      birthtime: s.birthtime,
+      mode: s.mode
     };
   } catch (err) {
     return null;
   }
+});
+
+ipcMain.handle('get-templates', async () => {
+  return readTemplates();
+});
+
+ipcMain.handle('save-template', async (event, template) => {
+  const templates = readTemplates();
+  template.id = template.id || 'tpl_' + Date.now();
+  template.createdAt = template.createdAt || new Date().toISOString();
+  template.updatedAt = new Date().toISOString();
+
+  const existingIndex = templates.findIndex(t => t.id === template.id);
+  if (existingIndex >= 0) {
+    templates[existingIndex] = { ...templates[existingIndex], ...template };
+  } else {
+    templates.push(template);
+  }
+
+  writeTemplates(templates);
+  return template;
+});
+
+ipcMain.handle('delete-template', async (event, templateId) => {
+  const templates = readTemplates();
+  const filtered = templates.filter(t => t.id !== templateId);
+  writeTemplates(filtered);
+  return true;
+});
+
+ipcMain.handle('check-output-conflicts', async (event, files, outputDir, settings) => {
+  return imageProcessor.checkOutputConflicts(files, outputDir, settings);
+});
+
+ipcMain.handle('get-folder-customer-name', async (event, folderPath) => {
+  if (!folderPath) return null;
+  const baseName = path.basename(folderPath);
+  return baseName;
+});
+
+ipcMain.handle('preview-watermark-multi', async (event, imagePath, settings, positions) => {
+  return imageProcessor.previewWatermarkMulti(imagePath, settings, positions);
 });

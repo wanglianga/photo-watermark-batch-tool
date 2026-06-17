@@ -261,7 +261,7 @@ function generateNewFileName(index, originalName, settings, imageInfo) {
   return newName + ext;
 }
 
-async function processSingleImage(filePath, outputDir, index, total, settings, previewMode = false) {
+async function processSingleImage(filePath, outputDir, index, total, settings, previewMode = false, customOutputName = null) {
   const imageInfo = await getImageInfo(filePath);
   if (!imageInfo) {
     throw new Error('无法读取图片信息');
@@ -432,8 +432,13 @@ async function processSingleImage(filePath, outputDir, index, total, settings, p
     return 'data:image/jpeg;base64,' + outputBuffer.toString('base64');
   }
 
-  const newFileName = generateNewFileName(index, path.basename(filePath), settings, imageInfo);
+  const newFileName = customOutputName || generateNewFileName(index, path.basename(filePath), settings, imageInfo);
   const outputPath = path.join(outputDir, newFileName);
+
+  const outDir = path.dirname(outputPath);
+  if (!fs.existsSync(outDir)) {
+    fs.mkdirSync(outDir, { recursive: true });
+  }
 
   fs.writeFileSync(outputPath, outputBuffer);
 
@@ -491,26 +496,53 @@ function closeLog() {
 async function startBatchProcess(files, settings, outputDir, progressCallback) {
   isCancelRequested = false;
   const startTime = Date.now();
+  const conflictStrategy = settings.conflictStrategy || 'ask';
   const results = {
     total: files.length,
     success: [],
     failed: [],
     skipped: [],
-    logFile: null
+    logFile: null,
+    conflictStrategy: conflictStrategy
   };
 
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+  let actualOutputDir = outputDir;
+  if (conflictStrategy === 'dateFolder') {
+    actualOutputDir = getDateSubfolder(outputDir);
   }
 
-  initLog(outputDir);
+  if (!fs.existsSync(actualOutputDir)) {
+    fs.mkdirSync(actualOutputDir, { recursive: true });
+  }
+
+  initLog(actualOutputDir);
   writeLog(`开始批处理, 共 ${files.length} 张图片`);
-  writeLog(`输出目录: ${outputDir}`);
+  writeLog(`输出目录: ${actualOutputDir}`);
+  writeLog(`冲突策略: ${conflictStrategy}`);
   if (settings.customerName) writeLog(`客户名称: ${settings.customerName}`);
   if (settings.shootTheme) writeLog(`拍摄主题: ${settings.shootTheme}`);
 
-  let lastProgressTime = 0;
   let perFileTimes = [];
+  const usedNames = new Set();
+
+  function getUniqueName(baseName, ext, targetDir) {
+    let name = baseName + ext;
+    let counter = 1;
+    const key = (targetDir + '/' + name).toLowerCase();
+    if (!usedNames.has(key) && !fs.existsSync(path.join(targetDir, name))) {
+      usedNames.add(key);
+      return name;
+    }
+    while (true) {
+      name = `${baseName}_${String(counter).padStart(2, '0')}${ext}`;
+      const fullKey = (targetDir + '/' + name).toLowerCase();
+      if (!usedNames.has(fullKey) && !fs.existsSync(path.join(targetDir, name))) {
+        usedNames.add(fullKey);
+        return name;
+      }
+      counter++;
+    }
+  }
 
   for (let i = 0; i < files.length; i++) {
     if (isCancelRequested) {
@@ -528,6 +560,7 @@ async function startBatchProcess(files, settings, outputDir, progressCallback) {
       currentPath: file.path,
       successCount: results.success.length,
       failedCount: results.failed.length,
+      skippedCount: results.skipped.length,
       percent: ((i) / files.length * 100).toFixed(1),
       status: 'processing'
     };
@@ -544,7 +577,48 @@ async function startBatchProcess(files, settings, outputDir, progressCallback) {
     progressCallback(progress);
 
     try {
-      const result = await processSingleImage(file.path, outputDir, results.success.length, files.length, settings, false);
+      const imageInfo = await getImageInfo(file.path);
+      const ext = imageInfo ? '.' + (imageInfo.format === 'jpeg' ? 'jpg' : imageInfo.format) : path.extname(file.path);
+      const baseName = generateNewFileName(i, path.basename(file.path), settings, imageInfo || { format: 'jpg' });
+      const baseNameWithoutExt = baseName.replace(path.extname(baseName), '');
+      const actualExt = settings.outputFormat === 'same' ? ext : ('.' + settings.outputFormat);
+
+      let outputName = null;
+      let skipFile = false;
+
+      if (conflictStrategy === 'skip') {
+        const targetPath = path.join(actualOutputDir, baseNameWithoutExt + actualExt);
+        if (fs.existsSync(targetPath)) {
+          skipFile = true;
+          results.skipped.push({
+            name: file.name,
+            path: file.path,
+            reason: '同名文件已存在，跳过'
+          });
+          writeLog(`⏭ 跳过: ${path.basename(file.path)} - 同名文件已存在`);
+        }
+      }
+
+      if (skipFile) {
+        const fileEndTime = Date.now();
+        perFileTimes.push(fileEndTime - fileStartTime);
+        if (perFileTimes.length > 20) perFileTimes.shift();
+        continue;
+      }
+
+      if (conflictStrategy === 'rename') {
+        outputName = getUniqueName(baseNameWithoutExt, actualExt, actualOutputDir);
+      }
+
+      const result = await processSingleImage(
+        file.path,
+        actualOutputDir,
+        results.success.length,
+        files.length,
+        settings,
+        false,
+        outputName
+      );
       results.success.push(result);
       writeLog(`✓ 成功: ${path.basename(file.path)} -> ${result.outputFileName} (${(result.outputSize / 1024).toFixed(1)}KB, 压缩${result.compressionRatio}%)`);
     } catch (err) {
@@ -564,6 +638,7 @@ async function startBatchProcess(files, settings, outputDir, progressCallback) {
   writeLog(`\n--- 处理结果统计 ---`);
   writeLog(`总数: ${files.length}`);
   writeLog(`成功: ${results.success.length}`);
+  writeLog(`跳过: ${results.skipped.length}`);
   writeLog(`失败: ${results.failed.length}`);
   writeLog(`总用时: ${totalMinutes > 0 ? totalMinutes + '分' : ''}${totalSecs}秒`);
 
@@ -574,15 +649,24 @@ async function startBatchProcess(files, settings, outputDir, progressCallback) {
     }
   }
 
+  if (results.skipped.length > 0) {
+    writeLog(`\n--- 跳过列表 ---`);
+    for (const f of results.skipped) {
+      writeLog(`  - ${f.name}: ${f.reason}`);
+    }
+  }
+
   results.logFile = closeLog();
   results.totalTime = `${totalMinutes > 0 ? totalMinutes + '分' : ''}${totalSecs}秒`;
   results.totalSeconds = totalSeconds;
+  results.outputDir = actualOutputDir;
 
   progressCallback({
     current: files.length,
     total: files.length,
     successCount: results.success.length,
     failedCount: results.failed.length,
+    skippedCount: results.skipped.length,
     percent: '100',
     status: isCancelRequested ? 'cancelled' : 'completed',
     results: results
@@ -596,12 +680,158 @@ function cancelBatch() {
   return true;
 }
 
+function isFileReadOnly(filePath) {
+  try {
+    const stats = fs.statSync(filePath);
+    return (stats.mode & 0o200) === 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+function checkOutputConflicts(files, outputDir, settings) {
+  const conflicts = [];
+  const existingNames = new Set();
+
+  if (!fs.existsSync(outputDir)) {
+    return { hasConflicts: false, conflicts: [], readOnlyCount: 0, totalConflicts: 0 };
+  }
+
+  try {
+    const dirEntries = fs.readdirSync(outputDir, { withFileTypes: true });
+    for (const entry of dirEntries) {
+      if (entry.isFile()) {
+        existingNames.add(entry.name.toLowerCase());
+      }
+    }
+  } catch (err) {
+    console.error('读取输出目录失败:', err);
+  }
+
+  let readOnlyCount = 0;
+  let historicalBatches = [];
+
+  try {
+    const dirFiles = fs.readdirSync(outputDir);
+    for (const name of dirFiles) {
+      const fullPath = path.join(outputDir, name);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.isFile() && isFileReadOnly(fullPath)) {
+          readOnlyCount++;
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+
+    const logFiles = dirFiles.filter(f => f.startsWith('处理日志_') && f.endsWith('.txt'));
+    historicalBatches = logFiles.map(f => {
+      const match = f.match(/处理日志_(.+)\.txt/);
+      return match ? match[1] : f;
+    }).sort().reverse();
+  } catch (err) {
+    console.error('检查历史批次失败:', err);
+  }
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const imageInfo = { format: path.extname(file.path).toLowerCase().slice(1) };
+    const newFileName = generateNewFileName(i, file.name, settings, imageInfo);
+    const outputPath = path.join(outputDir, newFileName);
+
+    if (existingNames.has(newFileName.toLowerCase())) {
+      const isReadOnly = isFileReadOnly(outputPath);
+      let fileSize = null;
+      let fileMtime = null;
+      try {
+        const stat = fs.statSync(outputPath);
+        fileSize = stat.size;
+        fileMtime = stat.mtime;
+      } catch (e) {}
+
+      conflicts.push({
+        originalName: file.name,
+        originalPath: file.path,
+        outputFileName: newFileName,
+        outputPath: outputPath,
+        isReadOnly: isReadOnly,
+        existingSize: fileSize,
+        existingMtime: fileMtime
+      });
+    }
+  }
+
+  return {
+    hasConflicts: conflicts.length > 0,
+    conflicts: conflicts,
+    readOnlyCount: readOnlyCount,
+    historicalBatches: historicalBatches,
+    totalConflicts: conflicts.length
+  };
+}
+
+async function previewWatermarkMulti(imagePath, settings, positions) {
+  const results = [];
+  for (const pos of positions) {
+    const modSettings = JSON.parse(JSON.stringify(settings));
+    const positionName = pos.position || pos;
+    const orient = pos.orientation || 'landscape';
+
+    if (modSettings.orientationSettings && modSettings.orientationSettings[orient]) {
+      modSettings.orientationSettings[orient].position = positionName;
+      modSettings.orientationSettings[orient].textPosition = pos.textPosition || positionName;
+    }
+
+    try {
+      const preview = await processSingleImage(imagePath, null, 0, 1, modSettings, true);
+      results.push({
+        position: positionName,
+        orientation: orient,
+        preview: preview,
+        label: pos.label || positionName
+      });
+    } catch (err) {
+      results.push({
+        position: positionName,
+        orientation: orient,
+        preview: null,
+        error: err.message,
+        label: pos.label || positionName
+      });
+    }
+  }
+  return results;
+}
+
+function getAutoNumberedName(outputDir, baseName, ext) {
+  let counter = 1;
+  let newName = `${baseName}_${String(counter).padStart(2, '0')}${ext}`;
+  while (fs.existsSync(path.join(outputDir, newName))) {
+    counter++;
+    newName = `${baseName}_${String(counter).padStart(2, '0')}${ext}`;
+  }
+  return newName;
+}
+
+function getDateSubfolder(baseDir) {
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const dir = path.join(baseDir, dateStr);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
 module.exports = {
   scanImages,
   getThumbnail,
   getImageInfo,
   readExif,
   previewWatermark,
+  previewWatermarkMulti,
   startBatchProcess,
-  cancelBatch
+  cancelBatch,
+  checkOutputConflicts
 };
