@@ -620,7 +620,16 @@ function updateMultiPreviewInfo() {
   const total = state.files.length;
   const current = state.multiPreviewSampleIndex + 1;
   const file = state.files[state.multiPreviewSampleIndex];
-  $('multi-preview-sample-info').textContent = `第 ${current} / ${total} 张 · ${file ? file.name : ''}`;
+  const firstResult = state.multiPreviewResults && state.multiPreviewResults[0];
+  let orientationLabel = '';
+  if (firstResult) {
+    switch (firstResult.orientation) {
+      case 'landscape': orientationLabel = ' · 横图'; break;
+      case 'portrait': orientationLabel = ' · 竖图'; break;
+      case 'square': orientationLabel = ' · 方图'; break;
+    }
+  }
+  $('multi-preview-sample-info').textContent = `第 ${current} / ${total} 张 · ${file ? file.name : ''}${orientationLabel}`;
 }
 
 function renderMultiPreviewGrid() {
@@ -630,7 +639,9 @@ function renderMultiPreviewGrid() {
     return;
   }
 
-  const currentSettings = state.orientationSettings[state.currentOrientationTab];
+  const actualOrient = state.multiPreviewResults[0].orientation;
+  const tabToApply = actualOrient || state.currentOrientationTab;
+  const currentSettings = state.orientationSettings[tabToApply];
   const currentPosition = currentSettings ? currentSettings.position : 'bottom-right';
 
   let html = '';
@@ -649,6 +660,13 @@ function renderMultiPreviewGrid() {
     card.addEventListener('click', () => {
       const position = card.dataset.position;
       applyPositionToCurrentOrientation(position);
+      if (state.orientationSettings[tabToApply]) {
+        state.orientationSettings[tabToApply].position = position;
+        if (state.orientationSettings[tabToApply].textPosition !== undefined) {
+          state.orientationSettings[tabToApply].textPosition = position;
+        }
+        syncTabUIFromState(tabToApply);
+      }
       renderMultiPreviewGrid();
     });
   });
@@ -728,10 +746,43 @@ async function showConflictModal() {
     return false;
   }
 
-  $('conflict-total-count').textContent = conflictResult.totalConflicts;
+  const hasName = conflictResult.hasNameConflicts !== false && conflictResult.conflicts.length > 0;
+  const hasHistory = conflictResult.hasHistory || (conflictResult.historicalBatches && conflictResult.historicalBatches.length > 0);
+  const hasReadOnly = conflictResult.hasReadOnly || conflictResult.readOnlyCount > 0;
+
+  const titleEl = document.querySelector('#conflict-modal .modal-header h3');
+  const originalTitle = titleEl ? titleEl.textContent : '';
+  const conflictDescEl = document.querySelector('#conflict-modal .conflict-desc');
+  const originalDesc = conflictDescEl ? conflictDescEl.textContent : '';
+
+  let reasons = [];
+  if (hasName) reasons.push('同名文件');
+  if (hasHistory) reasons.push('历史导出批次');
+  if (hasReadOnly) reasons.push('只读文件');
+
+  if (titleEl) {
+    titleEl.textContent = `⚠️ 输出目录存在${reasons.join('、')}`;
+  }
+
+  if (conflictDescEl) {
+    if (hasName && hasHistory) {
+      conflictDescEl.textContent = `目标目录存在 ${conflictResult.conflicts.length} 个同名文件 · ${conflictResult.historicalBatches.length} 个历史导出批次`;
+    } else if (hasHistory && !hasName) {
+      conflictDescEl.textContent = `该目录之前已有 ${conflictResult.historicalBatches.length} 个历史导出批次`;
+    } else if (hasReadOnly && !hasName && !hasHistory) {
+      conflictDescEl.textContent = '检测到只读文件';
+    } else if (!hasName && !hasHistory) {
+      conflictDescEl.textContent = '目标目录存在潜在冲突';
+    }
+  }
+
+  const totalCountEl = $('conflict-total-count');
+  if (totalCountEl) {
+    totalCountEl.textContent = conflictResult.conflicts.length || conflictResult.historicalBatches.length || 0;
+  }
 
   const readOnlyWarn = $('conflict-readonly-warning');
-  if (conflictResult.readOnlyCount > 0) {
+  if (hasReadOnly) {
     $('conflict-readonly-count').textContent = conflictResult.readOnlyCount;
     readOnlyWarn.classList.remove('hidden');
   } else {
@@ -739,29 +790,56 @@ async function showConflictModal() {
   }
 
   const historyInfo = $('conflict-history-info');
-  if (conflictResult.historicalBatches && conflictResult.historicalBatches.length > 0) {
+  if (hasHistory) {
     $('conflict-history-count').textContent = conflictResult.historicalBatches.length;
     historyInfo.classList.remove('hidden');
   } else {
     historyInfo.classList.add('hidden');
   }
 
+  const conflictPreviewSection = document.querySelector('#conflict-modal .conflict-preview');
+  const previewTitleEl = conflictPreviewSection ? conflictPreviewSection.querySelector('h4') : null;
+  const originalPreviewTitle = previewTitleEl ? previewTitleEl.textContent : '';
   const listEl = $('conflict-file-list');
-  const previewConflicts = conflictResult.conflicts.slice(0, 10);
-  let listHtml = '';
-  for (const c of previewConflicts) {
-    const sizeText = c.existingSize ? formatSize(c.existingSize) : '';
-    listHtml += `
-      <div class="conflict-file-item ${c.isReadOnly ? 'readonly' : ''}">
-        <span class="file-name" title="${c.outputFileName}">${c.outputFileName}</span>
-        <span class="file-status">${c.isReadOnly ? '🔒 只读' : sizeText}</span>
-      </div>
-    `;
+
+  if (!hasName && hasHistory) {
+    if (previewTitleEl) previewTitleEl.textContent = '近期历史导出批次：';
+    if (conflictPreviewSection) conflictPreviewSection.classList.remove('hidden');
+    let historyListHtml = '';
+    const displayBatches = conflictResult.historicalBatches.slice(0, 10);
+    for (const batchTime of displayBatches) {
+      historyListHtml += `
+        <div class="conflict-file-item">
+          <span class="file-name">📋 处理日志_${batchTime}.txt</span>
+          <span class="file-status">历史批次</span>
+        </div>
+      `;
+    }
+    if (conflictResult.historicalBatches.length > 10) {
+      historyListHtml += `<div class="conflict-file-item"><span class="file-name">... 还有 ${conflictResult.historicalBatches.length - 10} 个历史批次</span><span class="file-status"></span></div>`;
+    }
+    listEl.innerHTML = historyListHtml;
+  } else if (hasName) {
+    if (previewTitleEl) previewTitleEl.textContent = '部分冲突文件预览：';
+    if (conflictPreviewSection) conflictPreviewSection.classList.remove('hidden');
+    const previewConflicts = conflictResult.conflicts.slice(0, 10);
+    let listHtml = '';
+    for (const c of previewConflicts) {
+      const sizeText = c.existingSize ? formatSize(c.existingSize) : '';
+      listHtml += `
+        <div class="conflict-file-item ${c.isReadOnly ? 'readonly' : ''}">
+          <span class="file-name" title="${c.outputFileName}">${c.outputFileName}</span>
+          <span class="file-status">${c.isReadOnly ? '🔒 只读' : sizeText}</span>
+        </div>
+      `;
+    }
+    if (conflictResult.conflicts.length > 10) {
+      listHtml += `<div class="conflict-file-item"><span class="file-name">... 还有 ${conflictResult.conflicts.length - 10} 个</span><span class="file-status"></span></div>`;
+    }
+    listEl.innerHTML = listHtml;
+  } else {
+    if (conflictPreviewSection) conflictPreviewSection.classList.add('hidden');
   }
-  if (conflictResult.conflicts.length > 10) {
-    listHtml += `<div class="conflict-file-item"><span class="file-name">... 还有 ${conflictResult.conflicts.length - 10} 个</span><span class="file-status"></span></div>`;
-  }
-  listEl.innerHTML = listHtml;
 
   const selected = document.querySelector('input[name="conflict-strategy"]:checked');
   if (selected) {
@@ -780,6 +858,10 @@ async function showConflictModal() {
       cancelBtn.removeEventListener('click', onCancel);
       closeBtn.removeEventListener('click', onCancel);
       $('conflict-modal').classList.add('hidden');
+      if (titleEl) titleEl.textContent = originalTitle;
+      if (conflictDescEl) conflictDescEl.textContent = originalDesc;
+      if (previewTitleEl) previewTitleEl.textContent = originalPreviewTitle;
+      if (conflictPreviewSection) conflictPreviewSection.classList.remove('hidden');
     }
 
     function onConfirm() {
@@ -1030,52 +1112,61 @@ function showBatchResult(result) {
   }
 }
 
+function applyOrientationSettingsToUI(settings) {
+  const orientInputs = document.querySelectorAll('.orient-setting');
+  orientInputs.forEach(input => {
+    const field = input.dataset.field;
+    if (settings && settings[field] !== undefined) {
+      input.value = settings[field];
+    }
+  });
+}
+
+function readOrientationUISettings() {
+  const orientInputs = document.querySelectorAll('.orient-setting');
+  const s = {};
+  orientInputs.forEach(input => {
+    const field = input.dataset.field;
+    if (input.type === 'number') {
+      s[field] = parseFloat(input.value) || 0;
+    } else {
+      s[field] = input.value;
+    }
+  });
+  return s;
+}
+
+function syncTabUIFromState(tabName) {
+  if (!tabName) tabName = state.currentOrientationTab;
+  if (tabName === state.currentOrientationTab) {
+    applyOrientationSettingsToUI(state.orientationSettings[tabName]);
+  }
+}
+
 function initOrientationTabs() {
   const tabBtns = document.querySelectorAll('.tab-btn');
-  const orientInputs = document.querySelectorAll('.orient-setting');
-
-  function applySettingsToUI(settings) {
-    orientInputs.forEach(input => {
-      const field = input.dataset.field;
-      if (settings[field] !== undefined) {
-        input.value = settings[field];
-      }
-    });
-  }
-
-  function readUISettings() {
-    const s = {};
-    orientInputs.forEach(input => {
-      const field = input.dataset.field;
-      if (input.type === 'number') {
-        s[field] = parseFloat(input.value) || 0;
-      } else {
-        s[field] = input.value;
-      }
-    });
-    return s;
-  }
 
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       const tab = btn.dataset.tab;
-      state.orientationSettings[state.currentOrientationTab] = readUISettings();
+      state.orientationSettings[state.currentOrientationTab] = readOrientationUISettings();
       state.currentOrientationTab = tab;
       tabBtns.forEach(b => b.classList.toggle('active', b === btn));
-      applySettingsToUI(state.orientationSettings[tab]);
+      applyOrientationSettingsToUI(state.orientationSettings[tab]);
     });
   });
 
-  applySettingsToUI(state.orientationSettings[state.currentOrientationTab]);
+  applyOrientationSettingsToUI(state.orientationSettings[state.currentOrientationTab]);
 
+  const orientInputs = document.querySelectorAll('.orient-setting');
   orientInputs.forEach(input => {
     input.addEventListener('change', () => {
-      state.orientationSettings[state.currentOrientationTab] = readUISettings();
+      state.orientationSettings[state.currentOrientationTab] = readOrientationUISettings();
     });
   });
 
   $('btn-copy-to-all').addEventListener('click', () => {
-    const current = readUISettings();
+    const current = readOrientationUISettings();
     state.orientationSettings.landscape = { ...current };
     state.orientationSettings.portrait = { ...current };
     state.orientationSettings.square = { ...current };

@@ -762,44 +762,54 @@ function checkOutputConflicts(files, outputDir, settings) {
     }
   }
 
+  const hasHistory = historicalBatches.length > 0;
+  const hasReadOnly = readOnlyCount > 0;
+  const hasNameConflicts = conflicts.length > 0;
+
   return {
-    hasConflicts: conflicts.length > 0,
+    hasConflicts: hasNameConflicts || hasHistory || hasReadOnly,
+    hasNameConflicts: hasNameConflicts,
+    hasHistory: hasHistory,
+    hasReadOnly: hasReadOnly,
     conflicts: conflicts,
     readOnlyCount: readOnlyCount,
     historicalBatches: historicalBatches,
-    totalConflicts: conflicts.length
+    totalConflicts: conflicts.length + historicalBatches.length
   };
 }
 
 async function previewWatermarkMulti(imagePath, settings, positions) {
   const results = [];
+
+  const imgInfo = await getImageInfo(imagePath);
+  const actualOrientation = imgInfo ? imgInfo.orientation : 'landscape';
+
   for (const pos of positions) {
     const modSettings = JSON.parse(JSON.stringify(settings));
     const positionName = pos.position || pos;
-    const orient = pos.orientation || 'landscape';
 
-    if (modSettings.orientationSettings && modSettings.orientationSettings[orient]) {
-      modSettings.orientationSettings[orient].position = positionName;
-      modSettings.orientationSettings[orient].textPosition = pos.textPosition || positionName;
+    if (modSettings.orientationSettings && modSettings.orientationSettings[actualOrientation]) {
+      modSettings.orientationSettings[actualOrientation].position = positionName;
+      modSettings.orientationSettings[actualOrientation].textPosition = pos.textPosition || positionName;
     }
 
     try {
       const preview = await processSingleImage(imagePath, null, 0, 1, modSettings, true);
       results.push({
         position: positionName,
-        orientation: orient,
+        orientation: actualOrientation,
         preview: preview,
         label: pos.label || positionName
       });
     } catch (err) {
-      results.push({
-        position: positionName,
-        orientation: orient,
-        preview: null,
-        error: err.message,
-        label: pos.label || positionName
-      });
-    }
+        results.push({
+          position: positionName,
+          orientation: actualOrientation,
+          preview: null,
+          error: err.message,
+          label: pos.label || positionName
+        });
+      }
   }
   return results;
 }
